@@ -12,8 +12,9 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 
-const PORT = Number(process.env.MOCK_ERP_PORT ?? 4010);
-const API_KEY = process.env.MOCK_ERP_API_KEY ?? 'test-key';
+// Honours the same ERP_MOCK_* vars as apps/erp-mock so the two cannot drift.
+const PORT = Number(process.env.ERP_MOCK_PORT ?? process.env.MOCK_ERP_PORT ?? 4010);
+const API_KEY = process.env.ERP_MOCK_API_KEY ?? process.env.MOCK_ERP_API_KEY ?? 'test-key';
 
 const SHAPES = ['Round', 'Princess', 'Oval', 'Emerald', 'Cushion', 'Pear'];
 const COLORS = ['D', 'E', 'F', 'G', 'H', 'I'];

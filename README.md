@@ -23,7 +23,7 @@ Implements the integration contract in
 ```
 apps/
   api/       NestJS backend — chat loop, ERP client, webhooks, admin API
-    tools/mock-erp.mjs   stand-in ERP for local development
+  erp-mock/  NestJS stand-in for the dealer's ERP, serving data/diamonds.json
   admin/     React admin panel ("Connect Your System")
   widget/    React chat widget for the dealer's website
 packages/
@@ -69,11 +69,27 @@ pnpm db:start             # or: docker compose up -d
 pnpm dev                  # api :3000, admin :5173, widget :5174
 ```
 
-In a second terminal, start the stand-in ERP so there is inventory to search:
+`pnpm dev` also starts the stand-in ERP on **:4010** with 48 diamonds. To run it
+alone:
 
 ```bash
-pnpm mock-erp             # :4010, 60 diamonds, Bearer test-key
+pnpm erp                  # :4010, Bearer test-key
 ```
+
+### The stand-in ERP
+
+[`apps/erp-mock`](apps/erp-mock) implements the full section 3 contract over a
+plain JSON file — no database. Edit
+[`apps/erp-mock/data/diamonds.json`](apps/erp-mock/data/diamonds.json) to change
+the inventory; it is a normal array of the objects described in section 2.
+
+Writes (hold, release, order) mutate an in-memory copy and never rewrite the
+file, so restarting returns to a known state and the fixture stays clean in git.
+`POST /api/_test/reset` restores it mid-run without a restart — useful between
+test cases.
+
+It shares the `@diamond/shared` contract types with the chatbot, so if the spec
+changes, both sides fail to compile together instead of drifting apart.
 
 Then open the admin panel at http://localhost:5173 and connect a showroom:
 
@@ -88,9 +104,13 @@ your showroom.
 ## What the dealer's developer has to build
 
 The nine endpoints in spec §3, in whatever language their existing software
-already uses. `apps/api/tools/mock-erp.mjs` is a working reference — roughly 250
-lines of dependency-free Node covering every endpoint, including the auth header
-check and the stock-status transition on hold.
+already uses. [`apps/erp-mock`](apps/erp-mock) is a working reference covering
+every endpoint, including the auth header check, the ordered colour/clarity
+scales, and the stock-status transition on hold.
+
+(`apps/api/tools/mock-erp.mjs` is the earlier dependency-free version of the same
+thing, kept as a zero-install option and runnable via `pnpm mock-erp:legacy`. The
+NestJS app supersedes it — delete the script if you don't want two.)
 
 They should also POST to the **webhook URL** shown in the admin panel whenever a
 diamond's price or stock changes (spec §3.11). That keeps our cached search

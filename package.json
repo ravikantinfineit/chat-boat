@@ -11,8 +11,10 @@
     "typecheck": "pnpm -r typecheck",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
-    "mock-erp": "node apps/api/tools/mock-erp.mjs",
     "db:start": "./scripts/dev-db.sh start",
-    "db:stop": "./scripts/dev-db.sh stop"
+    "db:stop": "./scripts/dev-db.sh stop",
+    "erp": "pnpm --filter @diamond/erp-mock start",
+    "erp:dev": "pnpm --filter @diamond/erp-mock dev",
+    "mock-erp:legacy": "node apps/api/tools/mock-erp.mjs"
   }
 }
