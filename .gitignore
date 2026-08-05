@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Vite
+.vite/
+vite.config.*.timestamp-*
+
+# Secrets and local config.
+# `.env` matches at any depth, so apps/api/.env and apps/widget/.env are covered
+# too. The committed .env.example files stay tracked — they are the template.
+.env
+.env.*
+!.env.example
+
+# Local Postgres cluster created by scripts/dev-db.sh
+.devdata/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+logs/
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# Editors
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
