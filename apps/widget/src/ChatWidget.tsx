@@ -130,7 +130,7 @@ function TurnBubble({ turn }: { turn: Turn }) {
 export function ChatWidget({
   apiBaseUrl,
   widgetKey,
-  greeting = 'Hi — tell me what you are looking for and I will search our stock. Shape, carat, budget, anything.',
+  greeting = 'Tell me a shape, carat weight or budget and I will search our live stock. You can also paste a certificate number.',
 }: ChatWidgetProps) {
   const { turns, status, busy, send } = useChat({ apiBaseUrl, widgetKey });
   const [draft, setDraft] = useState('');
@@ -149,14 +149,34 @@ export function ChatWidget({
 
   return (
     <div className="dc-widget">
-      <header className="dc-header">Diamond assistant</header>
+      <header className="dc-header">
+        <span className="dc-header-mark" aria-hidden="true">
+          ◆
+        </span>
+        <span className="dc-header-title">Diamond assistant</span>
+        <span className="dc-header-sub">Live stock</span>
+      </header>
 
       <div className="dc-scroll" ref={scrollRef}>
-        {turns.length === 0 && <div className="dc-greeting">{greeting}</div>}
+        {turns.length === 0 && (
+          <div className="dc-greeting">
+            <div className="dc-greeting-lead">What are you looking for?</div>
+            {greeting}
+          </div>
+        )}
         {turns.map((turn) => (
           <TurnBubble key={turn.id} turn={turn} />
         ))}
-        {status && <div className="dc-status">{status}…</div>}
+        {status && (
+          <div className="dc-status">
+            <span className="dc-status-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+            {status}
+          </div>
+        )}
       </div>
 
       <form className="dc-composer" onSubmit={submit}>

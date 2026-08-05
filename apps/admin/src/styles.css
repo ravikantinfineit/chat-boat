@@ -1,13 +1,35 @@
+/*
+ * Admin design system.
+ *
+ * The visual language borrows from fine jewellery retail: warm paper-toned
+ * surfaces rather than cold grey, a serif for headings, and champagne gold used
+ * sparingly as the only accent. Type is a system stack — no webfont request, so
+ * nothing blocks first paint and nothing phones home.
+ */
+
 :root {
-  --bg: #f7f7f8;
+  --ink: #14151a;
+  --ink-soft: #3a3b44;
+  --surface: #faf8f5;
   --panel: #ffffff;
-  --border: #e3e3e6;
-  --text: #1c1c1f;
-  --muted: #6b6b73;
-  --accent: #1f6feb;
-  --ok: #1a7f47;
-  --err: #b42318;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --border: #e8e3da;
+  --border-strong: #d8d1c4;
+  --muted: #74737d;
+  --gold: #a2814f;
+  --gold-tint: #f6f0e5;
+  --ok: #2f6b4c;
+  --ok-tint: #eaf3ee;
+  --err: #a33325;
+  --err-tint: #fbecea;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow-sm: 0 1px 2px rgba(20, 21, 26, 0.04), 0 1px 3px rgba(20, 21, 26, 0.05);
+  --shadow-md: 0 6px 24px rgba(20, 21, 26, 0.07);
+
+  --font-display: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
 }
 
 * {
@@ -16,100 +38,221 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- shell ---------------------------------------------------------------- */
+
+.topbar {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.brand-mark {
+  color: var(--gold);
+  font-size: 13px;
+  line-height: 1;
 }
 
 .layout {
-  max-width: 960px;
+  max-width: 780px;
   margin: 0 auto;
-  padding: 32px 20px 64px;
+  padding: 40px 24px 80px;
+}
+
+/* --- page headers --------------------------------------------------------- */
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
 }
 
 h1 {
-  font-size: 22px;
-  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
 }
 
 .subtitle {
   color: var(--muted);
-  font-size: 14px;
-  margin: 0 0 24px;
+  margin: 0;
+  max-width: 52ch;
 }
+
+/* --- panels --------------------------------------------------------------- */
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px;
-  margin-bottom: 20px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 24px;
+  margin-bottom: 18px;
 }
 
 .panel h2 {
-  font-size: 15px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 400;
   margin: 0 0 4px;
 }
 
 .panel .hint {
   color: var(--muted);
   font-size: 13px;
-  margin: 0 0 16px;
+  margin: 0 0 20px;
+  max-width: 56ch;
 }
+
+.panel-accent {
+  border-left: 3px solid var(--gold);
+}
+
+/* --- forms ---------------------------------------------------------------- */
 
 label {
   display: block;
   font-size: 13px;
   font-weight: 600;
-  margin-bottom: 6px;
+  margin-bottom: 7px;
+  color: var(--ink-soft);
 }
 
 input,
 textarea {
   width: 100%;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
+  padding: 10px 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   font: inherit;
-  font-size: 14px;
-  background: #fff;
+  background: var(--panel);
   color: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #a9a7b0;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-tint);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 88px;
 }
 
 .field {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
-.field .help {
+.field:last-child {
+  margin-bottom: 0;
+}
+
+/* Not scoped to .field — credential blocks use it too. */
+.help {
   color: var(--muted);
-  font-size: 12px;
-  margin-top: 5px;
+  font-size: 12.5px;
+  margin: 7px 0 0;
+}
+
+.help code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
 }
 
 .row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 20px;
 }
+
+@media (max-width: 640px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- buttons -------------------------------------------------------------- */
 
 button {
   font: inherit;
-  font-size: 14px;
   font-weight: 600;
-  padding: 9px 16px;
-  border-radius: 7px;
-  border: 1px solid var(--border);
-  background: #fff;
+  font-size: 13.5px;
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--ink);
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.06s;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--ink-soft);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--gold-tint);
+  border-color: var(--gold);
 }
 
 button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--ink);
+  border-color: var(--ink);
   color: #fff;
 }
 
+button.primary:hover:not(:disabled) {
+  background: #24252d;
+}
+
 button:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: default;
 }
 
@@ -117,24 +260,91 @@ button:disabled {
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
 }
 
-.readonly {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+/* --- status --------------------------------------------------------------- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-size: 12.5px;
-  background: #f2f2f4;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 9px 11px;
-  word-break: break-all;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 999px;
 }
 
-.status.ok {
+.pill.ok {
+  background: var(--ok-tint);
   color: var(--ok);
 }
-.status.err {
+
+.pill.err {
+  background: var(--err-tint);
   color: var(--err);
 }
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.status.err {
+  color: var(--err);
+  font-size: 13px;
+}
+
+/* --- credential fields ---------------------------------------------------- */
+
+.cred {
+  margin-bottom: 18px;
+}
+
+.cred:last-child {
+  margin-bottom: 0;
+}
+
+.cred-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+
+.cred-value {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.cred-value code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.cred-value button {
+  flex: none;
+  padding: 8px 13px;
+  font-size: 12.5px;
+}
+
+/* --- tenant list ---------------------------------------------------------- */
 
 .tenant-list {
   list-style: none;
@@ -142,23 +352,83 @@ button:disabled {
   padding: 0;
 }
 
-.tenant-list li {
-  border-bottom: 1px solid var(--border);
-  padding: 12px 0;
+.tenant-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
 }
 
-.tenant-list li:last-child {
+.tenant-row:first-child {
+  padding-top: 0;
+}
+
+.tenant-row:last-child {
   border-bottom: none;
+  padding-bottom: 0;
 }
 
-a {
-  color: var(--accent);
+.tenant-name {
+  font-family: var(--font-display);
+  font-size: 16px;
+  margin-bottom: 2px;
+}
+
+.tenant-url {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.link-btn {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition: border-color 0.15s;
+}
+
+.link-btn:hover {
+  border-color: var(--ink-soft);
+}
+
+/* --- empty state ---------------------------------------------------------- */
+
+.empty {
+  text-align: center;
+  padding: 44px 20px;
+}
+
+.empty-mark {
+  font-size: 26px;
+  color: var(--gold);
+  margin-bottom: 12px;
+}
+
+.empty-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+
+.empty-body {
+  color: var(--muted);
+  font-size: 13.5px;
+  max-width: 42ch;
+  margin: 0 auto 20px;
 }
 
 .muted {
   color: var(--muted);
   font-size: 13px;
+}
+
+a {
+  color: var(--ink);
 }
