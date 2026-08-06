@@ -69,8 +69,17 @@ model ChatMessage {
   conversationId String   @map("conversation_id") @db.Uuid
   role           Role
   content        Json
+  /// Uncached input only, once prompt caching is on. Total prompt =
+  /// inputTokens + cacheCreationInputTokens + cacheReadInputTokens.
   inputTokens    Int?     @map("input_tokens")
   outputTokens   Int?     @map("output_tokens")
+  /// Written to cache this call, billed at ~1.25x.
+  cacheCreationInputTokens Int? @map("cache_creation_input_tokens")
+  /// Served from cache this call, billed at ~0.1x. This is the saving.
+  cacheReadInputTokens     Int? @map("cache_read_input_tokens")
+  /// Which model served the call — a refusal retry switches model, and caches
+  /// are model-scoped, so a cold-cache spike is otherwise unexplainable.
+  model          String?
   createdAt      DateTime @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

@@ -165,6 +165,13 @@
   border-bottom-left-radius: 5px;
 }
 
+/* Highlighted specifications. 650 rather than bold's 700 — the point is to make
+   figures findable when skimming, not to shout over the prose around them. */
+.dc-bubble strong {
+  font-weight: 650;
+  color: var(--dc-ink);
+}
+
 /* --- working indicator ---------------------------------------------------- */
 
 .dc-status {
@@ -203,6 +210,23 @@
   }
   50% {
     opacity: 1;
+  }
+}
+
+/* Results appear after the reply has finished writing, so give them their own
+   entrance rather than letting them pop in. */
+.dc-reveal {
+  animation: dc-reveal 0.32s ease-out both;
+}
+
+@keyframes dc-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 

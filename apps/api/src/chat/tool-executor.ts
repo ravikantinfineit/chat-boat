@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { ChatStreamEvent } from '@diamond/shared';
+import { toModelDiamond, toModelSummary } from '@diamond/shared';
 import { CatalogService } from '../catalog/catalog.service';
 import { DiamondUnavailableError, ErpUnavailableError } from '../common/errors';
 import { ErpService } from '../erp/erp.service';
@@ -84,19 +85,26 @@ export class ToolExecutor {
       case 'search_diamonds': {
         const response = await this.catalog.search(tenant, {
           ...input,
-          limit: input.limit ?? 10,
+          // Ceiling as well as default: without it the model can ask for 50 and
+          // the default never fires.
+          limit: Math.min(input.limit ?? 6, 10),
           // The customer is shopping — never surface sold or reserved stones.
           stock_status: 'In Stock',
         });
+        // The model gets the trimmed projection; the widget's cards keep the
+        // full objects, including the images it renders.
         return {
-          result: response,
+          result: { ...response, results: response.results.map(toModelSummary) },
           events: [{ type: 'cards', diamonds: response.results }],
         };
       }
 
       case 'get_diamond_details': {
         const diamond = await this.catalog.getDiamond(tenant, input.diamond_id);
-        return { result: diamond, events: [{ type: 'cards', diamonds: [diamond] }] };
+        return {
+          result: toModelDiamond(diamond),
+          events: [{ type: 'cards', diamonds: [diamond] }],
+        };
       }
 
       case 'check_availability': {
@@ -107,7 +115,10 @@ export class ToolExecutor {
 
       case 'compare_diamonds': {
         const diamonds = await this.erp.compareDiamonds(tenant, input.diamond_ids);
-        return { result: diamonds, events: [{ type: 'comparison', diamonds }] };
+        return {
+          result: diamonds.map(toModelDiamond),
+          events: [{ type: 'comparison', diamonds }],
+        };
       }
 
       case 'hold_diamond': {

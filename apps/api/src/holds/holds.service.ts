@@ -89,21 +89,42 @@ export class HoldsService {
     });
   }
 
-  /** Wake up exactly when the ERP's hold lapses so we can follow up. */
+  /**
+   * Wake up exactly when the ERP's hold lapses so we can follow up.
+   *
+   * Never allowed to fail the hold. By the time this runs the stone is already
+   * reserved in the dealer's system and recorded here, so throwing would report
+   * failure for something that actually succeeded — and the retry would then
+   * find the stone "taken" by the customer's own hold. The ERP releases expired
+   * holds on its own; this job only keeps our mirror honest.
+   */
   private async scheduleExpiry(hold: Hold): Promise<void> {
-    await this.queue.add(
-      'hold-expiry',
-      { holdId: hold.id },
-      {
-        delay: Math.max(0, hold.expiresAt.getTime() - Date.now()),
-        jobId: expiryJobId(hold.id),
-        removeOnComplete: true,
-      },
-    );
+    try {
+      await this.queue.add(
+        'hold-expiry',
+        { holdId: hold.id },
+        {
+          delay: Math.max(0, hold.expiresAt.getTime() - Date.now()),
+          jobId: expiryJobId(hold.id),
+          removeOnComplete: true,
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `Hold ${hold.erpHoldId} succeeded but its expiry job could not be queued: ${
+          (error as Error).message
+        }`,
+      );
+    }
   }
 }
 
-/** Derived from the local id so scheduling and removal always agree. */
+/**
+ * Derived from the local id so scheduling and removal always agree.
+ *
+ * No colons: BullMQ uses ':' as its Redis key separator and rejects custom job
+ * ids containing one.
+ */
 function expiryJobId(holdId: string): string {
-  return `hold-expiry:${holdId}`;
+  return `hold-expiry-${holdId}`;
 }

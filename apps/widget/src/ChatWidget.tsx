@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { Diamond, DiamondSummary } from '@diamond/shared';
 import { useChat, type Turn } from './useChat';
 import './widget.css';
@@ -108,21 +108,59 @@ function Receipt({ kind, data }: { kind: string; data: Record<string, unknown> }
   );
 }
 
+/**
+ * The bubble is plain text with exactly one piece of formatting: **bold**, used
+ * for the specifications a customer is weighing up.
+ *
+ * Deliberately not a markdown library — this widget is embedded on other
+ * people's sites, so bundle size counts, and a full parser would also let
+ * heading and list syntax back in. Building React nodes rather than setting
+ * innerHTML means model output can never inject markup.
+ *
+ * Splitting on the delimiter also handles streaming for free: an unclosed run,
+ * which exists on nearly every frame while text arrives, renders as
+ * bold-in-progress instead of flashing literal asterisks.
+ */
+function RichText({ text }: { text: string }) {
+  return (
+    <>
+      {text.split('**').map((part, i) =>
+        i % 2 === 1 ? <strong key={i}>{part}</strong> : <Fragment key={i}>{part}</Fragment>,
+      )}
+    </>
+  );
+}
+
 function TurnBubble({ turn }: { turn: Turn }) {
+  // Everything structured waits for the reply to finish, so the customer reads
+  // the recommendation first and then sees the stones it refers to.
+  const showResults = turn.complete;
+
   return (
     <div className={`dc-turn dc-turn-${turn.role}`}>
-      {turn.text && <div className="dc-bubble">{turn.text}</div>}
-      {turn.cards && turn.cards.length > 0 && (
-        <div className="dc-cards">
+      {turn.text && (
+        <div className="dc-bubble">
+          {turn.role === 'assistant' ? <RichText text={turn.text} /> : turn.text}
+        </div>
+      )}
+      {showResults && turn.cards && turn.cards.length > 0 && (
+        <div className="dc-cards dc-reveal">
           {turn.cards.map((d) => (
             <DiamondCard key={d.diamond_id} diamond={d} />
           ))}
         </div>
       )}
-      {turn.comparison && <ComparisonTable diamonds={turn.comparison} />}
-      {turn.receipts?.map((r, i) => (
-        <Receipt key={i} kind={r.kind} data={r.data} />
-      ))}
+      {showResults && turn.comparison && (
+        <div className="dc-reveal">
+          <ComparisonTable diamonds={turn.comparison} />
+        </div>
+      )}
+      {showResults &&
+        turn.receipts?.map((r, i) => (
+          <div className="dc-reveal" key={i}>
+            <Receipt kind={r.kind} data={r.data} />
+          </div>
+        ))}
     </div>
   );
 }

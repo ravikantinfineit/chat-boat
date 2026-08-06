@@ -107,3 +107,29 @@ export type DiamondSummary = Pick<
   | 'image_urls'
   | 'certificate_no'
 >;
+
+/**
+ * What the model sees.
+ *
+ * Media and certificate links are opaque URLs it can neither fetch nor reason
+ * about, yet `image_urls` alone is roughly a third of a search response — and a
+ * tool result is replayed on every later call for the rest of the conversation,
+ * so the waste compounds. The widget receives the untrimmed objects on its own
+ * channel, so nothing visible changes.
+ *
+ * Grading detail (polish, symmetry, fluorescence, measurements), `tags` and
+ * `location` are deliberately kept: the model needs them to advise on trade-offs
+ * and to answer "where is this stone?".
+ */
+export type ModelDiamond = Omit<Diamond, 'image_urls' | 'video_url' | 'certificate_url'>;
+export type ModelDiamondSummary = Omit<DiamondSummary, 'image_urls'>;
+
+export function toModelDiamond(diamond: Diamond): ModelDiamond {
+  const { image_urls, video_url, certificate_url, ...rest } = diamond;
+  return rest;
+}
+
+export function toModelSummary(summary: DiamondSummary): ModelDiamondSummary {
+  const { image_urls, ...rest } = summary;
+  return rest;
+}

@@ -9,6 +9,15 @@ export interface Turn {
   cards?: DiamondSummary[];
   comparison?: Diamond[];
   receipts?: { kind: 'hold' | 'quotation' | 'order'; data: Record<string, unknown> }[];
+  /**
+   * The turn has finished streaming.
+   *
+   * Cards arrive the moment the search returns, which is before the assistant
+   * has written what it thinks of them — showing a list first and explaining it
+   * afterwards reads backwards. So they are collected as they arrive and only
+   * revealed once the reply is complete.
+   */
+  complete?: boolean;
 }
 
 interface UseChatOptions {
@@ -113,6 +122,9 @@ export function useChat({ apiBaseUrl, widgetKey }: UseChatOptions) {
           text: t.text || `Sorry, something went wrong: ${(error as Error).message}`,
         }));
       } finally {
+        // Marked here rather than on `done` so a refusal, an error or a dropped
+        // connection still reveals whatever was found.
+        patch((t) => ({ ...t, complete: true }));
         setBusy(false);
         setStatus(null);
       }

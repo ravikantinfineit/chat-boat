@@ -3,7 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ChatStreamEvent } from '@diamond/shared';
 import { Prisma, PrismaService, Role, type Conversation, type Tenant } from '../prisma';
-import { buildSystemPrompt } from './system-prompt';
+import { STABLE_SYSTEM_PROMPT, buildTenantContext } from './system-prompt';
 import { ToolExecutor } from './tool-executor';
 import { DIAMOND_TOOLS, TOOL_LABELS } from './tools';
 
@@ -62,7 +62,16 @@ export class ChatService {
 
     await this.persist(conversation.id, Role.user, userText);
 
-    const system = buildSystemPrompt(tenant);
+    // The stable block carries the cache breakpoint, so the prefix it closes —
+    // tool definitions plus this text — is one cache entry shared by every
+    // conversation and every tenant. The tenant tail sits after it, uncached.
+    // The two must not be merged: the stable prose alone is under the minimum
+    // cacheable prefix, so it only caches when combined with the tools.
+    const system: Anthropic.TextBlockParam[] = [
+      { type: 'text', text: STABLE_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: buildTenantContext(tenant) },
+    ];
+
     let model = this.config.getOrThrow<string>('anthropic.model');
     let refusalRetried = false;
 
@@ -73,6 +82,10 @@ export class ChatService {
         system,
         tools: DIAMOND_TOOLS,
         messages,
+        // Second breakpoint: auto-placed on the last cacheable block, which is
+        // the newest message. That caches the conversation so far, so replaying
+        // a long transcript on the next call is read at a tenth of the price.
+        cache_control: { type: 'ephemeral' },
         // Low effort suits short sales turns. Thinking stays on (the default on
         // Opus 5) — disabling it risks the model writing a tool call as plain
         // text, which would silently never execute.
@@ -103,14 +116,13 @@ export class ChatService {
         return;
       }
 
+      this.logTokenUsage(message.usage);
+
       messages.push({ role: 'assistant', content: message.content });
-      await this.persist(
-        conversation.id,
-        Role.assistant,
-        message.content,
-        message.usage.input_tokens,
-        message.usage.output_tokens,
-      );
+      await this.persist(conversation.id, Role.assistant, message.content, {
+        usage: message.usage,
+        model,
+      });
 
       // A server-side tool paused mid-turn; re-send to let it resume.
       if (message.stop_reason === 'pause_turn') continue;
@@ -150,6 +162,20 @@ export class ChatService {
     yield { type: 'done' };
   }
 
+  /**
+   * Cache hits are the whole point of the breakpoints above, and they are
+   * invisible in the persisted token counts — so surface them per call.
+   * A cache_read of ~0 on repeated calls means something varying slipped in
+   * ahead of a breakpoint.
+   */
+  private logTokenUsage(usage: Anthropic.Usage): void {
+    const write = usage.cache_creation_input_tokens ?? 0;
+    const read = usage.cache_read_input_tokens ?? 0;
+    this.logger.log(
+      `tokens in=${usage.input_tokens} out=${usage.output_tokens} cache_write=${write} cache_read=${read}`,
+    );
+  }
+
   // --- persistence ----------------------------------------------------------
 
   /** Replays stored turns in the exact wire format the model produced. */
@@ -170,16 +196,18 @@ export class ChatService {
     conversationId: string,
     role: Role,
     content: unknown,
-    inputTokens?: number,
-    outputTokens?: number,
+    call?: { usage: Anthropic.Usage; model: string },
   ): Promise<void> {
     await this.prisma.chatMessage.create({
       data: {
         conversationId,
         role,
         content: content as Prisma.InputJsonValue,
-        inputTokens: inputTokens ?? null,
-        outputTokens: outputTokens ?? null,
+        inputTokens: call?.usage.input_tokens ?? null,
+        outputTokens: call?.usage.output_tokens ?? null,
+        cacheCreationInputTokens: call?.usage.cache_creation_input_tokens ?? null,
+        cacheReadInputTokens: call?.usage.cache_read_input_tokens ?? null,
+        model: call?.model ?? null,
       },
     });
   }

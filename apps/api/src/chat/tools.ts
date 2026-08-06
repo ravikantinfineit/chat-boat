@@ -32,7 +32,7 @@ export const DIAMOND_TOOLS: Anthropic.Tool[] = [
         cut: { type: 'string', description: 'Excellent, Very Good, Good, Fair, Poor' },
         diamond_type: { type: 'string', enum: ['Natural', 'Lab-Grown'] },
         page: { type: 'number', description: 'Page number, starting at 1' },
-        limit: { type: 'number', description: 'Results per page. Default 10; keep it small for chat.' },
+        limit: { type: 'number', description: 'Results per page. Default 6; keep it small for chat.' },
       },
       required: [],
     },
@@ -40,7 +40,7 @@ export const DIAMOND_TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_diamond_details',
     description:
-      'Fetch every field for one diamond: full 4Cs, polish, symmetry, fluorescence, measurements, depth and table percentages, certificate number and link, images, video and price. Call this when the customer asks about a specific stone, wants the certificate, or asks a question the search preview cannot answer.',
+      'Fetch every field for one diamond: full 4Cs, polish, symmetry, fluorescence, measurements, depth and table percentages, certificate number, location and price. Call this when the customer asks about a specific stone, wants its certificate number, or asks a question the search preview cannot answer. Images and the certificate document are shown to the customer automatically alongside your reply, so you do not receive or need their links.',
     input_schema: {
       type: 'object',
       properties: {
