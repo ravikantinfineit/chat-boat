@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
+import { HoldStatus } from '../prisma';
 import { HOLDS_QUEUE, HoldExpiryJob, HoldsService } from './holds.service';
 
 /**
@@ -21,11 +22,11 @@ export class HoldsProcessor extends WorkerHost {
   async process(job: Job<HoldExpiryJob>): Promise<void> {
     const hold = await this.holds.findById(job.data.holdId);
     if (!hold) return;
-    if (hold.status !== 'held') return; // already released or converted to an order
+    if (hold.status !== HoldStatus.held) return; // already released or ordered
 
     await this.holds.markExpired(hold.id);
     this.logger.log(
-      `Hold ${hold.erp_hold_id} on ${hold.diamond_id} expired for ${hold.customer_name}`,
+      `Hold ${hold.erpHoldId} on ${hold.diamondId} expired for ${hold.customerName}`,
     );
 
     // Follow-up hook: notify the customer / alert the sales team here.

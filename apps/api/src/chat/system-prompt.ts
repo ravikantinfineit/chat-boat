@@ -1,4 +1,4 @@
-import { Tenant } from '../database/entities';
+import type { Tenant } from '../prisma';
 
 /**
  * The sales persona and the rules that keep the bot honest about stock.
@@ -21,7 +21,7 @@ export function buildSystemPrompt(tenant: Tenant): string {
     'When you reserve a stone, tell the customer the reference and when the hold expires. Diamond buying is a considered purchase, so guide rather than push: explain what a grade difference actually means for the stone in front of them, and be straight about trade-offs when a cheaper option is genuinely the better buy.',
     '',
     'Keep replies short and easy to read — a couple of sentences, no bullet-point walls. Product details are rendered as cards next to your message, so describe and recommend rather than restating every specification.',
-    tenant.brand_instructions ? `\n${tenant.brand_instructions}` : '',
+    tenant.brandInstructions ? `\n${tenant.brandInstructions}` : '',
   ]
     .join('\n')
     .trim();

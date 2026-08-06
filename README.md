@@ -13,7 +13,7 @@ Implements the integration contract in
 |---|---|
 | Backend | NestJS 11 (TypeScript) |
 | AI | Claude API via `@anthropic-ai/sdk`, tool calling |
-| Database | PostgreSQL via TypeORM |
+| Database | PostgreSQL via Prisma 7 |
 | Cache & jobs | Redis + BullMQ |
 | Admin panel | React 19 + Vite |
 | Chat widget | React 19 + Vite (embeddable) |
@@ -66,8 +66,12 @@ anything else on your Redis.
 cp .env.example .env      # then set ANTHROPIC_API_KEY
 pnpm install
 pnpm db:start             # or: docker compose up -d
+pnpm --filter @diamond/api prisma:migrate   # create/apply the schema
+pnpm --filter @diamond/api db:seed          # a demo showroom wired to the mock ERP
 pnpm dev                  # api :3000, admin :5173, widget :5174
 ```
+
+The seed prints a widget key — put it in `apps/widget/.env` as `VITE_WIDGET_KEY`.
 
 `pnpm dev` also starts the stand-in ERP on **:4010** with 48 diamonds. To run it
 alone:
@@ -91,15 +95,10 @@ test cases.
 It shares the `@diamond/shared` contract types with the chatbot, so if the spec
 changes, both sides fail to compile together instead of drifting apart.
 
-Then open the admin panel at http://localhost:5173 and connect a showroom:
-
-- **API base URL** — `http://localhost:4010`
-- **API key** — `test-key`
-
-Hit **Test connection**; it runs a real search against the ERP and reports how
-many diamonds it can see. Copy the **widget key** it gives you into
-`apps/widget/.env` as `VITE_WIDGET_KEY`, and the widget on :5174 will talk to
-your showroom.
+The seed already wires a "Demo Diamonds" showroom to it. Open the admin panel at
+http://localhost:5173 and hit **Test connection** — it runs a real search against
+the ERP and reports how many diamonds it can see. To connect a showroom by hand
+instead, use base URL `http://localhost:4010` and API key `test-key`.
 
 ## What the dealer's developer has to build
 
@@ -145,7 +144,7 @@ out to the widget as structured cards or a receipt. See
 ## Before production
 
 - [ ] Put authentication in front of `/admin/*` — it is currently open
-- [ ] Replace `DB_SYNCHRONIZE=true` with generated migrations
+- [ ] Run `prisma migrate deploy` in the release pipeline (never `migrate dev`)
 - [ ] Narrow CORS from `origin: true` to the dealer's domains
 - [ ] Add WhatsApp Business Cloud API as a second channel (the `channel` column
       on conversations is already there for it)

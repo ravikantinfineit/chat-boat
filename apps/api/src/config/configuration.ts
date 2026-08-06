@@ -14,7 +14,6 @@ export interface AppConfig {
   };
   database: {
     url: string;
-    synchronize: boolean;
   };
   redis: {
     url: string;
@@ -32,7 +31,6 @@ export default (): AppConfig => ({
   },
   database: {
     url: process.env.DATABASE_URL ?? 'postgres://diamond:diamond@localhost:5432/diamond_chatbot',
-    synchronize: process.env.DB_SYNCHRONIZE === 'true',
   },
   redis: {
     url: process.env.REDIS_URL ?? 'redis://localhost:6379',

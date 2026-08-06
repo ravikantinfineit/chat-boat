@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { ChatStreamEvent } from '@diamond/shared';
-import { Conversation, Tenant } from '../database/entities';
 import { CatalogService } from '../catalog/catalog.service';
-import { ErpError, ErpService } from '../erp/erp.service';
-import { DiamondNoLongerAvailableError, HoldsService } from '../holds/holds.service';
+import { DiamondUnavailableError, ErpUnavailableError } from '../common/errors';
+import { ErpService } from '../erp/erp.service';
+import { HoldsService } from '../holds/holds.service';
+import type { Conversation, Tenant } from '../prisma';
 
 export interface ToolOutcome {
   /** JSON returned to the model as the tool_result content. */
@@ -43,17 +44,17 @@ export class ToolExecutor {
     } catch (error) {
       // Tool failures are handed back to the model rather than thrown, so it can
       // apologise or try a different approach instead of the turn dying.
-      if (error instanceof DiamondNoLongerAvailableError) {
+      if (error instanceof DiamondUnavailableError) {
         return {
           result: {
             error: 'diamond_unavailable',
-            message: `Diamond ${error.diamondId} is no longer available (${error.status}). Offer the customer similar alternatives.`,
+            message: `Diamond ${error.diamondId} is no longer available (${error.stockStatus}). Offer the customer similar alternatives.`,
           },
           isError: true,
           events: [],
         };
       }
-      if (error instanceof ErpError) {
+      if (error instanceof ErpUnavailableError) {
         this.logger.error(`Tool ${name} failed: ${error.message}`);
         return {
           result: {
@@ -117,7 +118,7 @@ export class ToolExecutor {
             customer_name: input.customer_name,
             customer_phone: input.customer_phone,
             customer_email: input.customer_email,
-            hold_duration_hours: input.hold_duration_hours ?? tenant.default_hold_hours,
+            hold_duration_hours: input.hold_duration_hours ?? tenant.defaultHoldHours,
             notes: input.notes ?? 'Requested via chatbot',
           },
           conversation.id,
@@ -164,7 +165,7 @@ export class ToolExecutor {
         for (const diamondId of input.diamond_ids as string[]) {
           const availability = await this.erp.checkAvailability(tenant, diamondId);
           if (availability.stock_status !== 'In Stock') {
-            throw new DiamondNoLongerAvailableError(diamondId, availability.stock_status);
+            throw new DiamondUnavailableError(diamondId, availability.stock_status);
           }
         }
         const response = await this.erp.createOrder(tenant, {

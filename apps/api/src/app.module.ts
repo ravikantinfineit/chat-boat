@@ -1,14 +1,13 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminModule } from './admin/admin.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { ChatModule } from './chat/chat.module';
 import configuration from './config/configuration';
-import * as entities from './database/entities';
 import { ErpModule } from './erp/erp.module';
 import { HoldsModule } from './holds/holds.module';
+import { PrismaModule } from './prisma';
 import { TenantModule } from './tenant/tenant.module';
 
 @Module({
@@ -18,17 +17,6 @@ import { TenantModule } from './tenant/tenant.module';
       load: [configuration],
       // nest start runs from apps/api, so reach up to the workspace root .env.
       envFilePath: ['../../.env', '.env'],
-    }),
-
-    TypeOrmModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres' as const,
-        url: config.getOrThrow<string>('database.url'),
-        entities: Object.values(entities),
-        // Dev convenience only — generate migrations for production.
-        synchronize: config.get<boolean>('database.synchronize') ?? false,
-      }),
     }),
 
     BullModule.forRootAsync({
@@ -49,6 +37,7 @@ import { TenantModule } from './tenant/tenant.module';
       },
     }),
 
+    PrismaModule,
     TenantModule,
     ErpModule,
     CatalogModule,

@@ -1,0 +1,122 @@
+// Schema for the chatbot's own state. Diamond inventory deliberately does NOT
+// live here — it stays in the dealer's ERP and is read live (spec section 1).
+//
+// Fields are camelCase (Prisma idiom) mapped onto snake_case columns.
+
+generator client {
+  provider = "prisma-client"
+  // Inside src/ so it sits under the compiler's rootDir. Git-ignored.
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// One dealer / showroom group, and how to reach their inventory system.
+model Tenant {
+  id                    String   @id @default(uuid()) @db.Uuid
+  name                  String
+  /// Public key embedded in the website widget. Never reaches the ERP.
+  widgetKey             String   @unique @map("widget_key")
+  erpBaseUrl            String   @map("erp_base_url")
+  /// AES-256-GCM ciphertext. Decrypted only at the moment of an ERP request.
+  erpApiKeyEncrypted    String   @map("erp_api_key_encrypted")
+  /// Sent as X-Company-ID for multi-branch systems.
+  companyId             String?  @map("company_id")
+  /// Shared secret the ERP signs inventory webhooks with (spec 3.11).
+  webhookSecret         String   @map("webhook_secret")
+  /// Spec 6 asks us to stay under the dealer's search rate limit.
+  erpRateLimitPerMinute Int      @default(60) @map("erp_rate_limit_per_minute")
+  defaultHoldHours      Int      @default(24) @map("default_hold_hours")
+  brandInstructions     String?  @map("brand_instructions")
+  active                Boolean  @default(true)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  conversations Conversation[]
+  holds         Hold[]
+
+  @@map("tenants")
+}
+
+/// A customer conversation on one channel.
+model Conversation {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  /// 'web' | 'whatsapp' | ...
+  channel       String   @default("web")
+  customerName  String?  @map("customer_name")
+  customerPhone String?  @map("customer_phone")
+  customerEmail String?  @map("customer_email")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+  holds    Hold[]
+
+  @@index([tenantId, createdAt])
+  @@map("conversations")
+}
+
+/// One turn, stored in the model's wire format so a conversation can be replayed
+/// verbatim. `content` holds the full content-block array including tool_use and
+/// tool_result — dropping those would break the model's view of what it already
+/// looked up.
+model ChatMessage {
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  role           Role
+  content        Json
+  inputTokens    Int?     @map("input_tokens")
+  outputTokens   Int?     @map("output_tokens")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
+}
+
+enum Role {
+  user
+  assistant
+
+  @@map("chat_message_role")
+}
+
+/// Local mirror of a hold created in the dealer's ERP (spec 3.6). The ERP is the
+/// source of truth; this exists so the bot can answer "is my stone still held?"
+/// and so a job can fire at expiry.
+model Hold {
+  id             String     @id @default(uuid()) @db.Uuid
+  tenantId       String     @map("tenant_id") @db.Uuid
+  conversationId String?    @map("conversation_id") @db.Uuid
+  /// The hold_id the ERP returned, e.g. "HOLD-88213".
+  erpHoldId      String     @map("erp_hold_id")
+  diamondId      String     @map("diamond_id")
+  customerName   String     @map("customer_name")
+  customerPhone  String     @map("customer_phone")
+  customerEmail  String?    @map("customer_email")
+  status         HoldStatus @default(held)
+  expiresAt      DateTime   @map("expires_at") @db.Timestamptz(3)
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, erpHoldId])
+  @@index([tenantId, status])
+  @@index([status, expiresAt])
+  @@map("holds")
+}
+
+enum HoldStatus {
+  held
+  released
+  expired
+  converted
+
+  @@map("hold_status")
+}

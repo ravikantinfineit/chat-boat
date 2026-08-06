@@ -6,7 +6,7 @@ import type {
   SearchDiamondsParams,
   SearchDiamondsResponse,
 } from '@diamond/shared';
-import { Tenant } from '../database/entities';
+import type { Tenant } from '../prisma';
 import { ErpService } from '../erp/erp.service';
 import { REDIS_CLIENT } from './redis.provider';
 

@@ -1,10 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import type { ChatStreamEvent } from '@diamond/shared';
-import { ChatMessage, Conversation, Tenant } from '../database/entities';
+import { Prisma, PrismaService, Role, type Conversation, type Tenant } from '../prisma';
 import { buildSystemPrompt } from './system-prompt';
 import { ToolExecutor } from './tool-executor';
 import { DIAMOND_TOOLS, TOOL_LABELS } from './tools';
@@ -19,8 +17,7 @@ export class ChatService {
   private client: Anthropic | null = null;
 
   constructor(
-    @InjectRepository(Conversation) private readonly conversations: Repository<Conversation>,
-    @InjectRepository(ChatMessage) private readonly messages: Repository<ChatMessage>,
+    private readonly prisma: PrismaService,
     private readonly toolExecutor: ToolExecutor,
     private readonly config: ConfigService,
   ) {}
@@ -40,22 +37,20 @@ export class ChatService {
     return this.client;
   }
 
-  async startConversation(tenant: Tenant, channel = 'web'): Promise<Conversation> {
-    return this.conversations.save(
-      this.conversations.create({ tenant_id: tenant.id, channel }),
-    );
+  startConversation(tenant: Tenant, channel = 'web'): Promise<Conversation> {
+    return this.prisma.conversation.create({ data: { tenantId: tenant.id, channel } });
   }
 
-  async getConversation(tenantId: string, conversationId: string): Promise<Conversation | null> {
-    return this.conversations.findOne({ where: { id: conversationId, tenant_id: tenantId } });
+  getConversation(tenantId: string, conversationId: string): Promise<Conversation | null> {
+    return this.prisma.conversation.findFirst({ where: { id: conversationId, tenantId } });
   }
 
   /**
    * Runs one customer turn to completion, yielding events as they happen.
    *
-   * This is a hand-written agentic loop rather than the SDK tool runner because
-   * each tool result has to fan out two ways: back to the model as a
-   * tool_result, and out to the widget as structured cards or a receipt.
+   * A hand-written agentic loop rather than the SDK tool runner, because each
+   * tool result has to fan out two ways: back to the model as a tool_result, and
+   * out to the widget as structured cards or a receipt.
    */
   async *streamTurn(
     tenant: Tenant,
@@ -63,12 +58,9 @@ export class ChatService {
     userText: string,
   ): AsyncGenerator<ChatStreamEvent> {
     const history = await this.loadHistory(conversation.id);
-    const messages: Anthropic.MessageParam[] = [
-      ...history,
-      { role: 'user', content: userText },
-    ];
+    const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: userText }];
 
-    await this.persist(conversation.id, 'user', userText);
+    await this.persist(conversation.id, Role.user, userText);
 
     const system = buildSystemPrompt(tenant);
     let model = this.config.getOrThrow<string>('anthropic.model');
@@ -114,7 +106,7 @@ export class ChatService {
       messages.push({ role: 'assistant', content: message.content });
       await this.persist(
         conversation.id,
-        'assistant',
+        Role.assistant,
         message.content,
         message.usage.input_tokens,
         message.usage.output_tokens,
@@ -130,17 +122,13 @@ export class ChatService {
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const toolUse of toolUses) {
-        yield {
-          type: 'tool',
-          name: toolUse.name,
-          label: TOOL_LABELS[toolUse.name] ?? 'Working',
-        };
+        yield { type: 'tool', name: toolUse.name, label: TOOL_LABELS[toolUse.name] ?? 'Working' };
 
         const outcome = await this.toolExecutor.execute(
           tenant,
           conversation,
           toolUse.name,
-          (toolUse.input ?? {}) as Record<string, any>,
+          (toolUse.input ?? {}) as Record<string, unknown>,
         );
 
         for (const sideEvent of outcome.events) yield sideEvent;
@@ -155,9 +143,8 @@ export class ChatService {
       }
 
       // All results for a turn go back in a single user message.
-      const toolResultMessage: Anthropic.MessageParam = { role: 'user', content: toolResults };
-      messages.push(toolResultMessage);
-      await this.persist(conversation.id, 'user', toolResults);
+      messages.push({ role: 'user', content: toolResults });
+      await this.persist(conversation.id, Role.user, toolResults);
     }
 
     yield { type: 'done' };
@@ -167,10 +154,12 @@ export class ChatService {
 
   /** Replays stored turns in the exact wire format the model produced. */
   private async loadHistory(conversationId: string): Promise<Anthropic.MessageParam[]> {
-    const rows = await this.messages.find({
-      where: { conversation_id: conversationId },
-      order: { created_at: 'ASC' },
+    const rows = await this.prisma.chatMessage.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+      select: { role: true, content: true },
     });
+
     return rows.map((row) => ({
       role: row.role,
       content: row.content as Anthropic.MessageParam['content'],
@@ -179,40 +168,37 @@ export class ChatService {
 
   private async persist(
     conversationId: string,
-    role: 'user' | 'assistant',
+    role: Role,
     content: unknown,
     inputTokens?: number,
     outputTokens?: number,
   ): Promise<void> {
-    await this.messages.save(
-      this.messages.create({
-        conversation_id: conversationId,
+    await this.prisma.chatMessage.create({
+      data: {
+        conversationId,
         role,
-        content,
-        input_tokens: inputTokens ?? null,
-        output_tokens: outputTokens ?? null,
-      }),
-    );
+        content: content as Prisma.InputJsonValue,
+        inputTokens: inputTokens ?? null,
+        outputTokens: outputTokens ?? null,
+      },
+    });
   }
 
-  /** Keeps contact details on the conversation so later turns can reuse them. */
+  /**
+   * Keeps contact details on the conversation so later turns can reuse them.
+   * First value wins — the customer should not be silently re-identified.
+   */
   private async rememberCustomer(
     conversation: Conversation,
     customer: { name?: string; phone?: string; email?: string },
   ): Promise<void> {
-    // Only the scalar columns — including the relation would not satisfy
-    // TypeORM's update() typing.
-    const patch: {
-      customer_name?: string;
-      customer_phone?: string;
-      customer_email?: string;
-    } = {};
-    if (customer.name && !conversation.customer_name) patch.customer_name = customer.name;
-    if (customer.phone && !conversation.customer_phone) patch.customer_phone = customer.phone;
-    if (customer.email && !conversation.customer_email) patch.customer_email = customer.email;
-    if (Object.keys(patch).length === 0) return;
+    const data: Prisma.ConversationUpdateInput = {};
+    if (customer.name && !conversation.customerName) data.customerName = customer.name;
+    if (customer.phone && !conversation.customerPhone) data.customerPhone = customer.phone;
+    if (customer.email && !conversation.customerEmail) data.customerEmail = customer.email;
+    if (Object.keys(data).length === 0) return;
 
-    Object.assign(conversation, patch);
-    await this.conversations.update({ id: conversation.id }, patch);
+    Object.assign(conversation, data);
+    await this.prisma.conversation.update({ where: { id: conversation.id }, data });
   }
 }

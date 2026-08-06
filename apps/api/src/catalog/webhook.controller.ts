@@ -38,7 +38,7 @@ export class InventoryWebhookController {
 
     // Optional but recommended: HMAC-SHA256 of the raw body, hex encoded.
     if (signature) {
-      const expected = createHmac('sha256', tenant.webhook_secret)
+      const expected = createHmac('sha256', tenant.webhookSecret)
         .update(JSON.stringify(payload))
         .digest('hex');
       const provided = Buffer.from(signature, 'utf8');

@@ -16,5 +16,11 @@
     "erp": "pnpm --filter @diamond/erp-mock start",
     "erp:dev": "pnpm --filter @diamond/erp-mock dev",
     "mock-erp:legacy": "node apps/api/tools/mock-erp.mjs"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/engines",
+      "msgpackr-extract"
+    ]
   }
 }

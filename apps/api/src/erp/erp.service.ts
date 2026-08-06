@@ -13,21 +13,10 @@ import type {
   SearchDiamondsParams,
   SearchDiamondsResponse,
 } from '@diamond/shared';
-import { Tenant } from '../database/entities';
+import { ErpUnavailableError } from '../common/errors';
+import type { Tenant } from '../prisma';
 import { TenantService } from '../tenant/tenant.service';
 import { RateLimiterRegistry } from './rate-limiter';
-
-/** Thrown when the dealer's ERP rejects or fails a request. */
-export class ErpError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly body?: string,
-  ) {
-    super(message);
-    this.name = 'ErpError';
-  }
-}
 
 interface RequestOptions {
   method?: 'GET' | 'POST';
@@ -181,7 +170,7 @@ export class ErpService {
 
         const text = await response.text();
         if (!response.ok) {
-          throw new ErpError(
+          throw new ErpUnavailableError(
             `ERP responded ${response.status} for ${options.path}`,
             response.status,
             text.slice(0, 500),
@@ -191,7 +180,7 @@ export class ErpService {
       } catch (error) {
         lastError = error;
         // A failed request contract (4xx) is final — don't burn retries on it.
-        if (error instanceof ErpError) throw error;
+        if (error instanceof ErpUnavailableError) throw error;
         if (attempt >= MAX_RETRIES) break;
         await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs(null, attempt)));
       } finally {
@@ -199,7 +188,7 @@ export class ErpService {
       }
     }
 
-    throw new ErpError(
+    throw new ErpUnavailableError(
       `Could not reach the ERP at ${options.path}: ${(lastError as Error)?.message ?? 'unknown error'}`,
       0,
     );
