@@ -122,6 +122,7 @@ export class ToolExecutor {
       }
 
       case 'hold_diamond': {
+        if (!tenant.allowHolds) return capabilityDisabled('reserve diamonds');
         const response = await this.holds.createHold(
           tenant,
           input.diamond_id,
@@ -129,7 +130,12 @@ export class ToolExecutor {
             customer_name: input.customer_name,
             customer_phone: input.customer_phone,
             customer_email: input.customer_email,
-            hold_duration_hours: input.hold_duration_hours ?? tenant.defaultHoldHours,
+            // Clamped, not rejected: a customer asking for a fortnight still
+            // gets a hold, just the longest one this showroom allows.
+            hold_duration_hours: Math.min(
+              input.hold_duration_hours ?? tenant.defaultHoldHours,
+              tenant.maxHoldHours,
+            ),
             notes: input.notes ?? 'Requested via chatbot',
           },
           conversation.id,
@@ -146,11 +152,13 @@ export class ToolExecutor {
       }
 
       case 'release_hold': {
+        if (!tenant.allowHolds) return capabilityDisabled('reserve diamonds');
         await this.holds.releaseHold(tenant, input.diamond_id, input.hold_id);
         return { result: { released: true, hold_id: input.hold_id }, events: [] };
       }
 
       case 'create_quotation': {
+        if (!tenant.allowQuotes) return capabilityDisabled('issue quotations');
         const response = await this.erp.createQuotation(tenant, {
           diamond_ids: input.diamond_ids,
           customer_name: input.customer_name,
@@ -172,6 +180,7 @@ export class ToolExecutor {
       }
 
       case 'place_order': {
+        if (!tenant.allowOrders) return capabilityDisabled('place orders or take payment');
         // Re-verify every stone before taking money for it.
         for (const diamondId of input.diamond_ids as string[]) {
           const availability = await this.erp.checkAvailability(tenant, diamondId);
@@ -202,6 +211,7 @@ export class ToolExecutor {
       }
 
       case 'get_order_status': {
+        if (!tenant.allowOrders) return capabilityDisabled('place orders or take payment');
         const response = await this.erp.getOrderStatus(tenant, input.order_id);
         return { result: response, events: [] };
       }
@@ -214,4 +224,27 @@ export class ToolExecutor {
         };
     }
   }
+}
+
+/**
+ * Where a showroom's capability toggles are actually enforced.
+ *
+ * Deliberately here rather than by filtering the tool list handed to the model.
+ * Tools serialise BEFORE the prompt cache breakpoint, so a per-tenant tool array
+ * would split one platform-wide cache entry into one per combination — punishing
+ * exactly the quiet showrooms whose caches never stay warm.
+ *
+ * It also fails in the right direction. A forgotten filter fails open and the
+ * call reaches the dealer's ERP; a forgotten guard here is a missing line in a
+ * switch that reviewers can see, and every path that commits anything has one.
+ */
+function capabilityDisabled(what: string): ToolOutcome {
+  return {
+    result: {
+      error: 'capability_disabled',
+      message: `This showroom has not enabled you to ${what}. Tell the customer you cannot do that here and offer to pass them to the team.`,
+    },
+    isError: true,
+    events: [],
+  };
 }

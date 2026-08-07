@@ -2,8 +2,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ChatStreamEvent } from '@diamond/shared';
+import { PiiService } from '../privacy/pii.service';
 import { Prisma, PrismaService, Role, type Conversation, type Tenant } from '../prisma';
-import { STABLE_SYSTEM_PROMPT, buildTenantContext } from './system-prompt';
+import { buildSystemBlocks } from './system-prompt';
 import { ToolExecutor } from './tool-executor';
 import { DIAMOND_TOOLS, TOOL_LABELS } from './tools';
 
@@ -19,6 +20,7 @@ export class ChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly toolExecutor: ToolExecutor,
+    private readonly pii: PiiService,
     private readonly config: ConfigService,
   ) {}
 
@@ -37,8 +39,10 @@ export class ChatService {
     return this.client;
   }
 
-  startConversation(tenant: Tenant, channel = 'web'): Promise<Conversation> {
-    return this.prisma.conversation.create({ data: { tenantId: tenant.id, channel } });
+  startConversation(tenant: Tenant, channel = 'web', visitorId?: string): Promise<Conversation> {
+    return this.prisma.conversation.create({
+      data: { tenantId: tenant.id, channel, visitorId: visitorId ?? null },
+    });
   }
 
   getConversation(tenantId: string, conversationId: string): Promise<Conversation | null> {
@@ -60,17 +64,14 @@ export class ChatService {
     const history = await this.loadHistory(conversation.id);
     const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: userText }];
 
-    await this.persist(conversation.id, Role.user, userText);
+    await this.persist(conversation, Role.user, userText);
 
     // The stable block carries the cache breakpoint, so the prefix it closes —
     // tool definitions plus this text — is one cache entry shared by every
     // conversation and every tenant. The tenant tail sits after it, uncached.
     // The two must not be merged: the stable prose alone is under the minimum
     // cacheable prefix, so it only caches when combined with the tools.
-    const system: Anthropic.TextBlockParam[] = [
-      { type: 'text', text: STABLE_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: buildTenantContext(tenant) },
-    ];
+    const system = buildSystemBlocks(tenant);
 
     let model = this.config.getOrThrow<string>('anthropic.model');
     let refusalRetried = false;
@@ -119,7 +120,7 @@ export class ChatService {
       this.logTokenUsage(message.usage);
 
       messages.push({ role: 'assistant', content: message.content });
-      await this.persist(conversation.id, Role.assistant, message.content, {
+      await this.persist(conversation, Role.assistant, message.content, {
         usage: message.usage,
         model,
       });
@@ -144,6 +145,7 @@ export class ChatService {
         );
 
         for (const sideEvent of outcome.events) yield sideEvent;
+        await this.recordToolCall(conversation, toolUse.name, !outcome.isError);
         if (outcome.customer) await this.rememberCustomer(conversation, outcome.customer);
 
         toolResults.push({
@@ -156,7 +158,7 @@ export class ChatService {
 
       // All results for a turn go back in a single user message.
       messages.push({ role: 'user', content: toolResults });
-      await this.persist(conversation.id, Role.user, toolResults);
+      await this.persist(conversation, Role.user, toolResults);
     }
 
     yield { type: 'done' };
@@ -192,15 +194,21 @@ export class ChatService {
     }));
   }
 
+  /**
+   * Takes the conversation rather than its id so `tenantId` comes along for the
+   * ride — it is denormalised onto the message so per-tenant usage can be rolled
+   * up without joining through conversations.
+   */
   private async persist(
-    conversationId: string,
+    conversation: Conversation,
     role: Role,
     content: unknown,
     call?: { usage: Anthropic.Usage; model: string },
   ): Promise<void> {
     await this.prisma.chatMessage.create({
       data: {
-        conversationId,
+        conversationId: conversation.id,
+        tenantId: conversation.tenantId,
         role,
         content: content as Prisma.InputJsonValue,
         inputTokens: call?.usage.input_tokens ?? null,
@@ -215,18 +223,43 @@ export class ChatService {
   /**
    * Keeps contact details on the conversation so later turns can reuse them.
    * First value wins — the customer should not be silently re-identified.
+   *
+   * Encrypted on the way in, along with the blind index that makes erasure
+   * possible later. Nothing readable is written.
    */
   private async rememberCustomer(
     conversation: Conversation,
     customer: { name?: string; phone?: string; email?: string },
   ): Promise<void> {
-    const data: Prisma.ConversationUpdateInput = {};
-    if (customer.name && !conversation.customerName) data.customerName = customer.name;
-    if (customer.phone && !conversation.customerPhone) data.customerPhone = customer.phone;
-    if (customer.email && !conversation.customerEmail) data.customerEmail = customer.email;
+    const data = this.pii.seal({
+      name: conversation.customerName ? null : customer.name,
+      phone: conversation.customerPhone ? null : customer.phone,
+      email: conversation.customerEmail ? null : customer.email,
+    });
     if (Object.keys(data).length === 0) return;
 
     Object.assign(conversation, data);
     await this.prisma.conversation.update({ where: { id: conversation.id }, data });
+  }
+
+  /**
+   * One narrow row per tool call, so the dashboard funnel is an index scan
+   * rather than a JSONB scan of every message ever sent.
+   *
+   * Never allowed to fail the turn: losing an analytics row is a gap in a chart,
+   * while throwing here would lose a hold the customer already has.
+   */
+  private async recordToolCall(
+    conversation: Conversation,
+    tool: string,
+    ok: boolean,
+  ): Promise<void> {
+    try {
+      await this.prisma.toolCallEvent.create({
+        data: { tenantId: conversation.tenantId, conversationId: conversation.id, tool, ok },
+      });
+    } catch (error) {
+      this.logger.warn(`Could not record tool call ${tool}: ${(error as Error).message}`);
+    }
   }
 }

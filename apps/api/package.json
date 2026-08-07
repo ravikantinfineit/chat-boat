@@ -10,7 +10,10 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "db:seed": "node dist/scripts/seed.js"
+    "db:seed": "node dist/scripts/seed.js",
+    "create-user": "node dist/scripts/create-user.js",
+    "test": "nest build && node --test $(find dist -name '*.test.js')",
+    "encrypt-pii": "node dist/scripts/encrypt-pii.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

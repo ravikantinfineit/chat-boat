@@ -13,9 +13,97 @@ datasource db {
   provider = "postgresql"
 }
 
+/// A customer of the platform. Owns one or more showrooms and has team members.
+model Organisation {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  /// Suspending an organisation stops all of its showrooms serving.
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenants     Tenant[]
+  memberships Membership[]
+  invitations Invitation[]
+
+  @@map("organisations")
+}
+
+/// A person who signs in. Platform staff have platformRole set and no membership.
+model User {
+  id    String @id @default(uuid()) @db.Uuid
+  email String @unique
+  name  String
+  /// scrypt$N$r$p$salt$hash. Null until an invitation is accepted.
+  passwordHash String?       @map("password_hash")
+  /// Set only by the CLI bootstrap script — no HTTP route may grant this.
+  platformRole PlatformRole? @map("platform_role")
+  active       Boolean       @default(true)
+  lastLoginAt  DateTime?     @map("last_login_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  memberships Membership[]
+
+  @@map("users")
+}
+
+enum PlatformRole {
+  platform_admin
+
+  @@map("platform_role")
+}
+
+/// Which organisation a user belongs to, and what they may do there.
+model Membership {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  organisationId String   @map("organisation_id") @db.Uuid
+  role           OrgRole  @default(member)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organisationId])
+  @@index([organisationId])
+  @@map("memberships")
+}
+
+enum OrgRole {
+  owner
+  admin
+  member
+
+  @@map("org_role")
+}
+
+/// A pending invitation to join an organisation.
+model Invitation {
+  id             String   @id @default(uuid()) @db.Uuid
+  organisationId String   @map("organisation_id") @db.Uuid
+  email          String
+  role           OrgRole  @default(member)
+  /// SHA-256 of the emailed token — reading this table must not grant an account.
+  tokenHash      String   @unique @map("token_hash")
+  invitedByUserId String? @map("invited_by_user_id") @db.Uuid
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(3)
+  acceptedAt     DateTime? @map("accepted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId, acceptedAt])
+  @@map("invitations")
+}
+
 /// One dealer / showroom group, and how to reach their inventory system.
 model Tenant {
   id                    String   @id @default(uuid()) @db.Uuid
+  /// Restrict, not Cascade: deleting an organisation must not silently take
+  /// live showrooms and their conversation history with it.
+  organisationId        String   @map("organisation_id") @db.Uuid
   name                  String
   /// Public key embedded in the website widget. Never reaches the ERP.
   widgetKey             String   @unique @map("widget_key")
@@ -34,9 +122,48 @@ model Tenant {
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
+  // --- agent rules -----------------------------------------------------------
+  // Split by one question: does server code branch on it?
+  //
+  // Persona, tone, guardrails and escalation are only ever concatenated into
+  // prose, so free text is right. The capability flags are branched on in
+  // ToolExecutor's dispatch, so they are typed columns — a JSON blob would let a
+  // misspelled key read `undefined` and fail OPEN, taking an order for a dealer
+  // who switched ordering off.
+  agentPersona      String?  @map("agent_persona")
+  agentTone         String?  @map("agent_tone")
+  guardrails        String[] @default([])
+  escalationRules   String[] @default([]) @map("escalation_rules")
+  escalationContact String?  @map("escalation_contact")
+
+  allowHolds  Boolean @default(true) @map("allow_holds")
+  allowQuotes Boolean @default(true) @map("allow_quotes")
+  /// Off by default. Taking money and a delivery address is opt-in, not
+  /// something a showroom discovers its assistant has been doing.
+  allowOrders Boolean @default(false) @map("allow_orders")
+  /// Ceiling for a single hold. Clamps rather than errors, so a customer asking
+  /// for a fortnight still gets a hold — just a shorter one.
+  maxHoldHours Int @default(72) @map("max_hold_hours")
+
+  // --- privacy ---------------------------------------------------------------
+  /// How long a conversation is kept before the nightly job deletes it.
+  retentionDays Int @default(365) @map("retention_days")
+
+  // --- cost protection -------------------------------------------------------
+  /// Null means no cap. Both are checked against today's / this month's usage.
+  dailyMessageCap    Int? @map("daily_message_cap")
+  monthlyTokenBudget Int? @map("monthly_token_budget")
+  /// Websites allowed to embed this showroom's widget. Empty means any — the
+  /// widget key is public, so without this anyone can spend the dealer's budget.
+  allowedOrigins String[] @default([]) @map("allowed_origins")
+
+  organisation  Organisation  @relation(fields: [organisationId], references: [id], onDelete: Restrict)
   conversations Conversation[]
   holds         Hold[]
+  messages      ChatMessage[]
+  toolCalls     ToolCallEvent[]
 
+  @@index([organisationId])
   @@map("tenants")
 }
 
@@ -46,17 +173,30 @@ model Conversation {
   tenantId      String   @map("tenant_id") @db.Uuid
   /// 'web' | 'whatsapp' | ...
   channel       String   @default("web")
+  /// AES-256-GCM ciphertext. A stolen dump yields nothing readable.
   customerName  String?  @map("customer_name")
   customerPhone String?  @map("customer_phone")
   customerEmail String?  @map("customer_email")
+  /// HMAC of the normalised phone / email under the app secret. Encryption
+  /// destroys equality search, so erasure and "find this customer" would be
+  /// impossible without it — and unlike the plaintext it is not reversible.
+  customerPhoneIndex String? @map("customer_phone_index")
+  customerEmailIndex String? @map("customer_email_index")
+  /// Anonymous, browser-local. Distinguishes 10 conversations from 10 people
+  /// without a cookie or anything identifying.
+  visitorId     String?  @map("visitor_id")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  messages ChatMessage[]
-  holds    Hold[]
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messages  ChatMessage[]
+  holds     Hold[]
+  toolCalls ToolCallEvent[]
 
   @@index([tenantId, createdAt])
+  @@index([tenantId, visitorId])
+  @@index([customerPhoneIndex])
+  @@index([customerEmailIndex])
   @@map("conversations")
 }
 
@@ -67,6 +207,10 @@ model Conversation {
 model ChatMessage {
   id             String   @id @default(uuid()) @db.Uuid
   conversationId String   @map("conversation_id") @db.Uuid
+  /// Denormalised from Conversation. Usage is rolled up per tenant per day over
+  /// this table, and the conversation join has no index that serves it. Safe
+  /// because a conversation never changes tenant.
+  tenantId       String   @map("tenant_id") @db.Uuid
   role           Role
   content        Json
   /// Uncached input only, once prompt caching is on. Total prompt =
@@ -83,8 +227,10 @@ model ChatMessage {
   createdAt      DateTime @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
+  @@index([tenantId, createdAt])
   @@map("chat_messages")
 }
 
@@ -105,9 +251,13 @@ model Hold {
   /// The hold_id the ERP returned, e.g. "HOLD-88213".
   erpHoldId      String     @map("erp_hold_id")
   diamondId      String     @map("diamond_id")
+  /// Encrypted, like the conversation's. The dealer's own ERP holds the
+  /// readable copy — this mirror does not need one.
   customerName   String     @map("customer_name")
   customerPhone  String     @map("customer_phone")
   customerEmail  String?    @map("customer_email")
+  customerPhoneIndex String? @map("customer_phone_index")
+  customerEmailIndex String? @map("customer_email_index")
   status         HoldStatus @default(held)
   expiresAt      DateTime   @map("expires_at") @db.Timestamptz(3)
   createdAt      DateTime   @default(now()) @map("created_at")
@@ -118,6 +268,8 @@ model Hold {
   @@unique([tenantId, erpHoldId])
   @@index([tenantId, status])
   @@index([status, expiresAt])
+  @@index([customerPhoneIndex])
+  @@index([customerEmailIndex])
   @@map("holds")
 }
 
@@ -128,4 +280,50 @@ enum HoldStatus {
   converted
 
   @@map("hold_status")
+}
+
+/// Who looked at, revealed or deleted what.
+///
+/// This is what makes "staff can read the full transcript" a defensible policy
+/// rather than merely a convenient one. Deliberately holds no foreign keys: the
+/// trail must outlive the user, the showroom and the organisation it describes,
+/// so the actor's email is denormalised in rather than joined to.
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organisationId String?  @map("organisation_id") @db.Uuid
+  tenantId       String?  @map("tenant_id") @db.Uuid
+  actorUserId    String?  @map("actor_user_id") @db.Uuid
+  actorEmail     String   @map("actor_email")
+  /// Dotted verb, e.g. credentials.reveal, transcript.view, customer.erase.
+  action         String
+  /// What it was done to — a conversation id, a blind index, a diamond.
+  target         String?
+  ip             String?
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([organisationId, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
+
+/// One tool call, recorded as it happens.
+///
+/// The same facts could be mined out of chat_messages.content, but that means a
+/// JSONB scan of the largest table in the schema for every dashboard load. One
+/// narrow row per call turns the funnel into an index range scan.
+model ToolCallEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  tool           String
+  ok             Boolean
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, tool, createdAt])
+  @@map("tool_call_events")
 }

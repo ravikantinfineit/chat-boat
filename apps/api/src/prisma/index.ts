@@ -6,5 +6,14 @@
 export { PrismaService } from './prisma.service';
 export { PrismaModule } from './prisma.module';
 
-export { Prisma, Role, HoldStatus } from '../generated/prisma/client';
-export type { Tenant, Conversation, ChatMessage, Hold } from '../generated/prisma/client';
+export { Prisma, Role, HoldStatus, OrgRole, PlatformRole } from '../generated/prisma/client';
+export type {
+  Tenant,
+  Conversation,
+  ChatMessage,
+  Hold,
+  Organisation,
+  User,
+  Membership,
+  Invitation,
+} from '../generated/prisma/client';

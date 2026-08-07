@@ -1,3 +1,4 @@
+import type Anthropic from '@anthropic-ai/sdk';
 import type { Tenant } from '../prisma';
 
 /**
@@ -31,14 +32,72 @@ export const STABLE_SYSTEM_PROMPT = [
 ].join('\n');
 
 /**
- * The per-tenant tail. Sent as a separate block after the cache breakpoint, so
- * it costs full price but leaves the shared prefix intact.
+ * The per-tenant tail: the showroom's own rules for how its assistant behaves.
+ *
+ * Sent as a separate block after the cache breakpoint, so it costs full price
+ * but leaves the shared prefix intact. It is also re-sent on every tool
+ * iteration — up to eight per customer message — so every line here is paid for
+ * eight times over. That is why the DTO caps persona and guardrail length, and
+ * why disabled capabilities are stated but enabled ones are not: a showroom
+ * running with everything on adds zero tokens.
  */
 export function buildTenantContext(tenant: Tenant): string {
+  const lines: string[] = [`You are representing ${tenant.name}.`];
+
+  if (tenant.agentPersona) lines.push('', tenant.agentPersona);
+  if (tenant.agentTone) lines.push('', `Tone: ${tenant.agentTone}`);
+  if (tenant.brandInstructions) lines.push('', tenant.brandInstructions);
+
+  if (tenant.guardrails.length > 0) {
+    lines.push('', 'Rules you must follow without exception:');
+    for (const rule of tenant.guardrails) lines.push(`- ${rule}`);
+  }
+
+  // Only the negatives. Listing what IS allowed would cost every showroom tokens
+  // to be told it can do what it can already do.
+  const disabled = describeDisabledCapabilities(tenant);
+  if (disabled.length > 0) {
+    lines.push('', ...disabled);
+  }
+
+  if (tenant.escalationRules.length > 0 || tenant.escalationContact) {
+    lines.push('', 'Hand the conversation to a person when:');
+    for (const rule of tenant.escalationRules) lines.push(`- ${rule}`);
+    if (tenant.escalationContact) {
+      lines.push(`When handing over, give the customer this contact: ${tenant.escalationContact}`);
+    }
+  }
+
+  return lines.join('\n').trim();
+}
+
+/**
+ * Telling the model a tool is off is a courtesy, not the enforcement — it lets
+ * the model say "I can't reserve stones, but I can put you in touch" instead of
+ * calling the tool and relaying an error. The actual enforcement is in
+ * ToolExecutor, which fails closed.
+ */
+function describeDisabledCapabilities(tenant: Tenant): string[] {
+  const lines: string[] = [];
+  if (!tenant.allowHolds) lines.push('You cannot reserve or hold diamonds. Do not offer to.');
+  if (!tenant.allowQuotes) lines.push('You cannot issue quotations. Do not offer to.');
+  if (!tenant.allowOrders) {
+    lines.push('You cannot place orders or take payment. Offer to connect the customer to the team instead.');
+  }
+  return lines;
+}
+
+/**
+ * The full system parameter for one tenant.
+ *
+ * Assembled here rather than inline in ChatService so the cache-prefix
+ * invariant — block 0 identical for every tenant, carrying the breakpoint — is
+ * expressed in one place and can be asserted by a test. A regression here is
+ * invisible at runtime except as a bill roughly twelve times larger.
+ */
+export function buildSystemBlocks(tenant: Tenant): Anthropic.TextBlockParam[] {
   return [
-    `You are representing ${tenant.name}.`,
-    tenant.brandInstructions ? `\n${tenant.brandInstructions}` : '',
-  ]
-    .join('\n')
-    .trim();
+    { type: 'text', text: STABLE_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: buildTenantContext(tenant) },
+  ];
 }

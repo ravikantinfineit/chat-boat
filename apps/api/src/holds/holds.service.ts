@@ -5,6 +5,7 @@ import type { HoldDiamondRequest, HoldDiamondResponse } from '@diamond/shared';
 import { isSellable } from '@diamond/shared';
 import { DiamondUnavailableError } from '../common/errors';
 import { ErpService } from '../erp/erp.service';
+import { PiiService } from '../privacy/pii.service';
 import { HoldStatus, PrismaService, type Hold, type Tenant } from '../prisma';
 
 export const HOLDS_QUEUE = 'holds';
@@ -20,6 +21,7 @@ export class HoldsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly erp: ErpService,
+    private readonly pii: PiiService,
     @InjectQueue(HOLDS_QUEUE) private readonly queue: Queue<HoldExpiryJob>,
   ) {}
 
@@ -47,9 +49,14 @@ export class HoldsService {
         conversationId: conversationId ?? null,
         erpHoldId: response.hold_id,
         diamondId,
-        customerName: request.customer_name,
-        customerPhone: request.customer_phone,
-        customerEmail: request.customer_email ?? null,
+        // The ERP already has the readable copy and is the source of truth for
+        // contacting the customer; this mirror only needs to know the hold
+        // exists, so it keeps the details encrypted.
+        ...this.pii.sealRequired({
+          name: request.customer_name,
+          phone: request.customer_phone,
+          email: request.customer_email,
+        }),
         status: HoldStatus.held,
         expiresAt: new Date(response.expires_at),
       },

@@ -48,6 +48,9 @@ The nine tools map one-to-one onto the spec's endpoints. Browsing reads go
 through a short-TTL Redis cache; anything that commits — availability, hold,
 quotation, order — always hits the ERP live.
 
+Full walkthrough, including the hold/order write path and the safeguards against
+selling one stone twice: [docs/how-it-works.md](docs/how-it-works.md).
+
 ## Running locally
 
 You need Postgres and Redis. With a working Docker daemon:

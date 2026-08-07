@@ -12,6 +12,8 @@ export interface TenantCredentials {
 }
 
 export interface CreateTenantInput {
+  /** Which organisation owns the showroom. Never taken from the request body. */
+  organisationId: string;
   name: string;
   erpBaseUrl: string;
   erpApiKey: string;
@@ -38,6 +40,7 @@ export class TenantService {
   create(input: CreateTenantInput): Promise<Tenant> {
     return this.prisma.tenant.create({
       data: {
+        organisationId: input.organisationId,
         name: input.name,
         widgetKey: generateKey('wk'),
         webhookSecret: generateKey('whsec'),
@@ -52,7 +55,8 @@ export class TenantService {
   }
 
   async update(id: string, input: UpdateTenantInput): Promise<Tenant> {
-    await this.findById(id); // 404 rather than Prisma's P2025
+    await this.findByIdUnscoped(id); // 404 rather than Prisma's P2025;
+    // ownership was already established by TenantAccessGuard before this runs.
 
     return this.prisma.tenant.update({
       where: { id },
@@ -71,13 +75,36 @@ export class TenantService {
     });
   }
 
-  findAll(): Promise<Tenant[]> {
-    return this.prisma.tenant.findMany({ orderBy: { createdAt: 'desc' } });
+  findAllForOrganisation(organisationId: string): Promise<Tenant[]> {
+    return this.prisma.tenant.findMany({
+      where: { organisationId },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
-  async findById(id: string): Promise<Tenant> {
+  /**
+   * Ownership-checked lookup.
+   *
+   * Reports "not found" rather than "forbidden" for another organisation's
+   * showroom — a 403 would confirm the id exists, which is an enumeration
+   * oracle.
+   */
+  async findForOrganisation(id: string, organisationId: string): Promise<Tenant> {
+    const tenant = await this.prisma.tenant.findFirst({ where: { id, organisationId } });
+    if (!tenant) throw new ResourceNotFoundError('Showroom', id);
+    return tenant;
+  }
+
+  /**
+   * NO ownership check — the caller must have established authority some other
+   * way. Only two callers are legitimate: the HMAC-authenticated inventory
+   * webhook, and TenantAccessGuard when acting for platform staff.
+   *
+   * Named to make an accidental call obvious in review.
+   */
+  async findByIdUnscoped(id: string): Promise<Tenant> {
     const tenant = await this.prisma.tenant.findUnique({ where: { id } });
-    if (!tenant) throw new ResourceNotFoundError('Tenant', id);
+    if (!tenant) throw new ResourceNotFoundError('Showroom', id);
     return tenant;
   }
 

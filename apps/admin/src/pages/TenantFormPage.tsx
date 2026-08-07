@@ -26,6 +26,23 @@ export function TenantFormPage() {
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [secret, setSecret] = useState<string | null>(null);
+  const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
+
+  async function revealSecret() {
+    if (!tenant) return;
+    setRevealing(true);
+    setRevealError(null);
+    try {
+      setSecret((await api.credentials(tenant.id)).webhook_secret);
+    } catch (e) {
+      setRevealError((e as Error).message);
+    } finally {
+      setRevealing(false);
+    }
+  }
+
   useEffect(() => {
     if (isNew || !id) return;
     api
@@ -60,7 +77,7 @@ export function TenantFormPage() {
       const saved = isNew ? await api.createTenant(input) : await api.updateTenant(id!, input);
       setTenant(saved);
       setApiKey('');
-      if (isNew) navigate(`/tenants/${saved.id}`);
+      if (isNew) navigate(`/app/showrooms/${saved.id}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -82,7 +99,7 @@ export function TenantFormPage() {
   }
 
   return (
-    <main className="layout">
+    <main className="page">
       <div className="page-head">
         <div>
           <h1>{isNew ? 'Connect your system' : name || 'Showroom'}</h1>
@@ -219,11 +236,25 @@ export function TenantFormPage() {
           </p>
 
           <CopyField label="Webhook URL" value={tenant.webhook_url} />
-          <CopyField
-            label="Webhook secret"
-            value={tenant.webhook_secret}
-            help="Sign the request body with HMAC-SHA256 and send it as the X-Webhook-Signature header."
-          />
+
+          {/* The signing secret is fetched deliberately rather than riding along
+              in every page load, and only owners and admins may request it. */}
+          {secret ? (
+            <CopyField
+              label="Webhook secret"
+              value={secret}
+              help="Sign the request body with HMAC-SHA256 and send it as the X-Webhook-Signature header."
+            />
+          ) : (
+            <div className="cred">
+              <div className="cred-label">Webhook secret</div>
+              <button type="button" onClick={revealSecret} disabled={revealing}>
+                {revealing ? 'Revealing…' : 'Reveal secret'}
+              </button>
+              {revealError && <p className="status err">{revealError}</p>}
+            </div>
+          )}
+
           <CopyField
             label="Website widget key"
             value={tenant.widget_key}

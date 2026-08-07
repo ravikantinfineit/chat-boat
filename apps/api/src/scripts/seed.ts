@@ -27,8 +27,17 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 
   try {
+    // Showrooms belong to an organisation now; reuse the one the migration
+    // created rather than making a second "default".
+    const organisation = await prisma.organisation.upsert({
+      where: { slug: 'default' },
+      create: { name: 'Default Organisation', slug: 'default' },
+      update: {},
+    });
+
     const existing = await prisma.tenant.findFirst({ where: { name: 'Demo Diamonds' } });
     const data = {
+      organisationId: organisation.id,
       name: 'Demo Diamonds',
       erpBaseUrl,
       erpApiKeyEncrypted: encryptSecret(erpApiKey, appSecret),

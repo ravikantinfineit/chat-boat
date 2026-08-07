@@ -56,7 +56,11 @@ export function useChat({ apiBaseUrl, widgetKey }: UseChatOptions) {
       try {
         const response = await fetch(`${apiBaseUrl}/chat/message`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Widget-Key': widgetKey },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Widget-Key': widgetKey,
+            'X-Visitor-Id': visitorId(),
+          },
           body: JSON.stringify({ conversation_id: conversationId.current ?? undefined, text }),
         });
         if (!response.ok || !response.body) {
@@ -133,4 +137,29 @@ export function useChat({ apiBaseUrl, widgetKey }: UseChatOptions) {
   );
 
   return { turns, status, busy, send };
+}
+
+/**
+ * A stable, anonymous id for this browser.
+ *
+ * It exists to answer "how many people used the assistant", which conversation
+ * counts cannot: one person asking three times on three evenings is three
+ * conversations and one customer. Deliberately meaningless — random, stored in
+ * localStorage rather than a cookie, never linked to anything identifying, and
+ * gone the moment the customer clears site data.
+ */
+function visitorId(): string {
+  const KEY = 'diamond-chat-visitor';
+  try {
+    const existing = localStorage.getItem(KEY);
+    if (existing) return existing;
+    const fresh = crypto.randomUUID().replace(/-/g, '');
+    localStorage.setItem(KEY, fresh);
+    return fresh;
+  } catch {
+    // Private browsing, or third-party storage blocked in an iframe. The visitor
+    // simply is not counted; sending a fresh id each time would inflate the
+    // number, which is worse than undercounting.
+    return '';
+  }
 }

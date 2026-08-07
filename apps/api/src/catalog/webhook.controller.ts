@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { InventoryUpdateWebhookPayload } from '@diamond/shared';
+import { Public } from '../auth/auth.decorators';
 import { TenantService } from '../tenant/tenant.service';
 import { CatalogService } from './catalog.service';
 
@@ -27,6 +28,8 @@ export class InventoryWebhookController {
     private readonly catalog: CatalogService,
   ) {}
 
+  // The dealer's ERP calls this. Authenticates by HMAC signature, not by session.
+  @Public()
   @Post('inventory-update')
   @HttpCode(202)
   async inventoryUpdate(
@@ -34,7 +37,8 @@ export class InventoryWebhookController {
     @Headers('x-webhook-signature') signature: string | undefined,
     @Body() payload: InventoryUpdateWebhookPayload,
   ): Promise<{ received: true }> {
-    const tenant = await this.tenants.findById(tenantId);
+    // HMAC-authenticated, not session-authenticated: an unscoped load is correct here.
+    const tenant = await this.tenants.findByIdUnscoped(tenantId);
 
     // Optional but recommended: HMAC-SHA256 of the raw body, hex encoded.
     if (signature) {

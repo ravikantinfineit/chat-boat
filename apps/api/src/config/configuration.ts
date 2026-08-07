@@ -1,5 +1,8 @@
 export interface AppConfig {
   port: number;
+  isProduction: boolean;
+  /** Origins allowed to call /admin, /auth and /platform with a session cookie. */
+  adminOrigins: string[];
   publicBaseUrl: string;
   appSecret: string;
   anthropic: {
@@ -22,6 +25,11 @@ export interface AppConfig {
 
 export default (): AppConfig => ({
   port: Number(process.env.PORT ?? 3000),
+  isProduction: process.env.NODE_ENV === 'production',
+  adminOrigins: (process.env.ADMIN_ORIGINS ?? 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000',
   appSecret: process.env.APP_SECRET ?? 'insecure-dev-secret-change-me-please',
   anthropic: {
